@@ -5,11 +5,29 @@ import (
 	"time"
 	"log"
 	"fmt"
+	"sync/atomic"
 )
+
+type apiConfig struct {
+	fileserverHits atomic.Int32
+}
 
 
 func main() {
+
+	apiCfg := apiConfig{}
+
 	mux := http.NewServeMux()
+	
+	//mux.Handle("/app/", http.StripPrefix("/app", http.FileServer(http.Dir("."))))
+	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(".")))))
+
+	mux.HandleFunc("/healthz", handlerReadiness)
+
+	mux.HandleFunc("/metrics", apiCfg.handlerHits)
+
+	mux.HandleFunc("/reset", apiCfg.resetHits)
+
 	server := &http.Server{
 		Addr: ":8080", 
 		Handler: mux,
@@ -17,26 +35,27 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 	}
 
-	
-	mux.Handle("/app/", http.StripPrefix("/app", http.FileServer(http.Dir("."))))
-
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		
-		// sets Header map to key Content-Type, value text/plain...
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-
-		// writes status code 200
-		w.WriteHeader(http.StatusOK)
-
-		// accepts []bytes, returns int, error
-		_, err := w.Write([]byte("OK"))
-		if err != nil {
-			fmt.Printf("%v", err)
-		}
-
-
-	})
 	log.Fatal(server.ListenAndServe())
 
 }
 
+func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cfg.fileserverHits.Add(1)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (cfg *apiConfig) handlerHits(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte("Hits: " + string(fmt.Sprintf("%d", cfg.fileserverHits.Load()))))
+}
+
+func handlerReadiness(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+func (cfg *apiConfig) resetHits(w http.ResponseWriter, r *http.Request) {
+	cfg.fileserverHits.Store(0)
+}
