@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"encoding/json"
+	"strings"
 )
 
 type apiConfig struct {
@@ -18,7 +19,7 @@ type chirpError struct {
 }
 
 type chirpValid struct {
-	Valid bool `json:"valid"`
+	Cleaned_body string `json:"cleaned_body"`
 }
 
 type parameters struct {
@@ -77,6 +78,8 @@ func (cfg *apiConfig) resetHits(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) validateChirp(w http.ResponseWriter, r *http.Request) {
+	
+	cleansedChirp := chirpValid{}
 
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
@@ -92,7 +95,8 @@ func (cfg *apiConfig) validateChirp(w http.ResponseWriter, r *http.Request) {
 		respondError(w, 400, "Chirp is too long")
 		return
 	} else {
-		respondJson(w, 200)
+		cleansedChirp = wordCleanse(w, params)
+		respondJson(w, 200, cleansedChirp)
 	}
 
 
@@ -116,14 +120,11 @@ func respondError(w http.ResponseWriter, code int, msg string){
 	w.Write(data)
 }
 
-func respondJson(w http.ResponseWriter, code int){
+func respondJson(w http.ResponseWriter, code int, cleansedChirp chirpValid){
 	w.Header().Set("Content-Type", "application/json")
 
-	validChirp := chirpValid{}
 
-	validChirp.Valid = true
-
-	data, err := json.Marshal(validChirp)
+	data, err := json.Marshal(cleansedChirp)
 
 	if err != nil {
 		log.Printf("Error", err)
@@ -132,4 +133,32 @@ func respondJson(w http.ResponseWriter, code int){
 
 	w.WriteHeader(200)
 	w.Write(data)
+}
+
+func wordCleanse(w http.ResponseWriter, params parameters) (cleansedChirp chirpValid) {
+	w.Header().Set("Content-Type", "application/json")
+
+	body := params.Body
+
+	
+	curses := map[string]bool{
+		"kerfuffle": true, 
+		"sharbert": true,
+		"fornax": true,
+	}
+
+	words := strings.Split(body, " ")
+
+	for i, word := range words {
+		word = strings.ToLower(word)
+		if curses[word] {
+			words[i] = "****"
+			
+		}
+	}
+
+	joinedwords := strings.Join(words, " ")
+
+	cleansedChirp.Cleaned_body = joinedwords
+	return cleansedChirp
 }
