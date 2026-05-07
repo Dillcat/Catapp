@@ -1,17 +1,22 @@
 package main
 
+import _ "github.com/lib/pq"
+
 import (
 	"net/http"
 	"time"
 	"log"
-	"fmt"
 	"sync/atomic"
 	"encoding/json"
-	"strings"
+	"os"
+	"github.com/Dillcat/Catapp/app/internal/database"
+	"github.com/joho/godotenv"
+	"database/sql"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	db *database.Queries
 }
 
 type chirpError struct {
@@ -28,8 +33,19 @@ type parameters struct {
 
 
 func main() {
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Printf("%v", err)
+		return
+	}
+
+	dbQueries := database.New(db)
 
 	apiCfg := apiConfig{}
+
+	apiCfg.db = dbQueries
 
 	mux := http.NewServeMux()
 	
@@ -40,9 +56,11 @@ func main() {
 
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerHits)
 
-	mux.HandleFunc("POST /admin/reset", apiCfg.resetHits)
+	mux.HandleFunc("POST /admin/reset", apiCfg.resetUsers)
 
 	mux.HandleFunc("POST /api/validate_chirp", apiCfg.validateChirp)
+
+	mux.HandleFunc("POST /api/users", apiCfg.createUser)
 
 	server := &http.Server{
 		Addr: ":8080", 
@@ -52,53 +70,6 @@ func main() {
 	}
 
 	log.Fatal(server.ListenAndServe())
-
-}
-
-func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cfg.fileserverHits.Add(1)
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (cfg *apiConfig) handlerHits(w http.ResponseWriter, r *http.Request) {
-	val := fmt.Sprintf(adminstring, cfg.fileserverHits.Load())
-	w.Write([]byte(val))
-}
-
-func handlerReadiness(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
-}
-
-func (cfg *apiConfig) resetHits(w http.ResponseWriter, r *http.Request) {
-	cfg.fileserverHits.Store(0)
-}
-
-func (cfg *apiConfig) validateChirp(w http.ResponseWriter, r *http.Request) {
-	
-	cleansedChirp := chirpValid{}
-
-	decoder := json.NewDecoder(r.Body)
-	params := parameters{}
-
-	err := decoder.Decode(&params)
-
-	if err != nil {
-		log.Printf("Error", err)
-		respondError(w, 500, "Something went wrong")
-	}
-
-	if len(params.Body) > 140 {
-		respondError(w, 400, "Chirp is too long")
-		return
-	} else {
-		cleansedChirp = wordCleanse(w, params)
-		respondJson(w, 200, cleansedChirp)
-	}
-
 
 }
 
@@ -129,36 +100,10 @@ func respondJson(w http.ResponseWriter, code int, cleansedChirp chirpValid){
 	if err != nil {
 		log.Printf("Error", err)
 		respondError(w, 500, "Something went wrong")
+		return
 	}
 
 	w.WriteHeader(200)
 	w.Write(data)
 }
 
-func wordCleanse(w http.ResponseWriter, params parameters) (cleansedChirp chirpValid) {
-	w.Header().Set("Content-Type", "application/json")
-
-	body := params.Body
-
-	
-	curses := map[string]bool{
-		"kerfuffle": true, 
-		"sharbert": true,
-		"fornax": true,
-	}
-
-	words := strings.Split(body, " ")
-
-	for i, word := range words {
-		word = strings.ToLower(word)
-		if curses[word] {
-			words[i] = "****"
-			
-		}
-	}
-
-	joinedwords := strings.Join(words, " ")
-
-	cleansedChirp.Cleaned_body = joinedwords
-	return cleansedChirp
-}
