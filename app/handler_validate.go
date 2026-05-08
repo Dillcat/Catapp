@@ -5,16 +5,25 @@ import (
 	"net/http"
 	"strings"
 	"log"
+	"github.com/google/uuid"
+	"time"
+	"github.com/Dillcat/Catapp/app/internal/database"
 )
 
+type Chirp struct {
+	ID uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body string `json:"body"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
 func (cfg *apiConfig) validateChirp(w http.ResponseWriter, r *http.Request) {
-	
-	cleansedChirp := chirpValid{}
 
 	decoder := json.NewDecoder(r.Body)
-	params := parameters{}
+	chirp := Chirp{}
 
-	err := decoder.Decode(&params)
+	err := decoder.Decode(&chirp)
 
 	if err != nil {
 		log.Printf("Error", err)
@@ -22,21 +31,45 @@ func (cfg *apiConfig) validateChirp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(params.Body) > 140 {
+	if len(chirp.Body) > 140 {
 		respondError(w, 400, "Chirp is too long")
 		return
 	} else {
-		cleansedChirp = wordCleanse(w, params)
-		respondJson(w, 200, cleansedChirp)
+
+
+
+		chirp = wordCleanse(w, chirp)
+
+		c, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{
+			Body: chirp.Body,
+			UserID: chirp.UserID,
+		})
+
+		if err != nil {
+			log.Printf("Error", err)
+			respondError(w, 500, "Something went wrong, createChirp")
+			return
+		}
+
+		chirp = Chirp{
+			ID: c.ID,
+			CreatedAt: c.CreatedAt,
+			UpdatedAt: c.UpdatedAt,
+			Body: c.Body,
+			UserID: c.UserID,
+		}
+
+		respondJson(w, 201, chirp)
 	}
+
 
 
 }
 
-func wordCleanse(w http.ResponseWriter, params parameters) (cleansedChirp chirpValid) {
+func wordCleanse(w http.ResponseWriter, chirp Chirp) (cleansedChirp Chirp) {
 	w.Header().Set("Content-Type", "application/json")
 
-	body := params.Body
+	body := chirp.Body
 
 	
 	curses := map[string]bool{
@@ -57,6 +90,6 @@ func wordCleanse(w http.ResponseWriter, params parameters) (cleansedChirp chirpV
 
 	joinedwords := strings.Join(words, " ")
 
-	cleansedChirp.Cleaned_body = joinedwords
-	return cleansedChirp
+	chirp.Body = joinedwords
+	return chirp
 }

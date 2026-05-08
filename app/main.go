@@ -27,9 +27,9 @@ type chirpValid struct {
 	Cleaned_body string `json:"cleaned_body"`
 }
 
-type parameters struct {
-	Body string `json:"body"`
-}
+//type parameters struct {
+//	Body string `json:"body"`
+//}
 
 
 func main() {
@@ -58,9 +58,13 @@ func main() {
 
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetUsers)
 
-	mux.HandleFunc("POST /api/validate_chirp", apiCfg.validateChirp)
+	mux.HandleFunc("POST /api/chirps", apiCfg.validateChirp)
 
 	mux.HandleFunc("POST /api/users", apiCfg.createUser)
+
+	mux.HandleFunc("GET /api/chirps", apiCfg.getChirps)
+
+	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
 
 	server := &http.Server{
 		Addr: ":8080", 
@@ -91,11 +95,11 @@ func respondError(w http.ResponseWriter, code int, msg string){
 	w.Write(data)
 }
 
-func respondJson(w http.ResponseWriter, code int, cleansedChirp chirpValid){
+func respondJson(w http.ResponseWriter, code int, payload interface{}){
 	w.Header().Set("Content-Type", "application/json")
 
 
-	data, err := json.Marshal(cleansedChirp)
+	data, err := json.Marshal(payload)
 
 	if err != nil {
 		log.Printf("Error", err)
@@ -103,7 +107,7 @@ func respondJson(w http.ResponseWriter, code int, cleansedChirp chirpValid){
 		return
 	}
 
-	w.WriteHeader(200)
+	w.WriteHeader(code)
 	w.Write(data)
 }
 
